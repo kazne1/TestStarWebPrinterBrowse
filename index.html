@@ -3,92 +3,136 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>webPRNT 最小テスト（文字印刷）</title>
+  <title>SM-L200 (Bluetooth) webPRNT 最小印刷</title>
 
-  <!-- Star提供ライブラリ（改変しない） -->
+  <!-- Star webPRNT SDK のJSを同じフォルダに置いて読み込み（改変しない） -->
   <script src="./StarWebPrintBuilder.js"></script>
   <script src="./StarWebPrintTrader.js"></script>
 
   <style>
     body { font-family: system-ui, sans-serif; padding: 16px; }
+    h2 { margin: 0 0 12px; }
     .row { margin: 10px 0; }
-    input { width: 100%; font-size: 18px; padding: 10px; }
-    button { font-size: 18px; padding: 10px 14px; margin-right: 8px; }
-    textarea { width:100%; height: 180px; font-family: ui-monospace, Menlo, Consolas, monospace; }
-    small { color:#666; }
+    input, textarea { width: 100%; font-size: 16px; padding: 10px; box-sizing: border-box; }
+    button { font-size: 16px; padding: 10px 14px; margin-right: 8px; }
+    small { color: #666; display: block; margin-top: 6px; line-height: 1.4; }
+    textarea { height: 200px; font-family: ui-monospace, Menlo, Consolas, monospace; }
+    .ok { color: #0a7a0a; }
+    .ng { color: #b00020; }
   </style>
 </head>
 
 <body>
-  <h2>Star webPRNT 文字印刷テスト</h2>
+  <h2>Star webPRNT（SM-L200 / Bluetooth）文字印刷テスト</h2>
 
   <div class="row">
-    <label>プリンタ SendMessage URL</label><br/>
-    <input id="printerUrl" value="https://192.168.1.100/StarWebPRNT/SendMessage" />
-    <small>※SWAがHTTPSなので、プリンタ側もHTTPS推奨（クロススキーム制限回避）。</small>
-  </div>
-
-  <div class="row">
-    <label>印刷する文字</label><br/>
-    <input id="text" placeholder="例：テスト印刷 123" />
+    <label>印刷する文字</label>
+    <input id="txt" type="text" placeholder="例：テスト印刷 123" />
+    <small>
+      ※このページは必ず <b>Star webPRNT Browser</b> で開いてください（通常Chromeでは動きません）。tions/66390374/how-to-connect-to-a-sk1-sanei-thermal-printer-using-star-webprnt-js-sdk-connecte)[7](https://play.google.com/store/apps/details?id=com.starmicronics.starwebprntpaid&hl=ja)
+    </small>
   </div>
 
   <div class="row">
     <button onclick="printText()">印刷</button>
-    <button onclick="selfTest()">通信テスト（Sendせず）</button>
+    <button onclick="printSample()">サンプル印刷</button>
   </div>
 
   <div class="row">
-    <label>ログ</label><br/>
+    <label>ログ</label>
     <textarea id="log" readonly></textarea>
   </div>
 
 <script>
-  function logLine(s) {
+  // Bluetooth版webPRNT Browserが提供するローカル送信口の候補
+  // 端末/バージョン差を吸収するため複数を順に試します。[1](https://stackoverflow.com/questions/66390374/how-to-connect-to-a-sk1-sanei-thermal-printer-using-star-webprnt-js-sdk-connecte)[2](https://gist.github.com/bobwurtz)
+  const ENDPOINT_CANDIDATES = [
+    "https://localhost:8001/StarWebPRNT/SendMessage",
+    "http://localhost:8001/StarWebPRNT/SendMessage",
+    "//localhost:8001/StarWebPrnt/SendMessage", // 事例にある表記揺れ
+    "//localhost:8001/StarWebPRNT/SendMessage"
+  ];
+
+  function logLine(msg, cls) {
     const ta = document.getElementById("log");
-    ta.value += s + "\n";
+    const prefix = cls === "ok" ? "[OK] " : cls === "ng" ? "[NG] " : "";
+    ta.value += prefix + msg + "\n";
     ta.scrollTop = ta.scrollHeight;
   }
 
-  // 通信テスト（URLがそれっぽいかだけチェック）
-  function selfTest() {
-    const url = document.getElementById("printerUrl").value.trim();
-    logLine("URL=" + url);
-    logLine("注意: SWA(https) → Printer(http) はブロックされやすい（mixed content）。");
+  function buildRequest(text) {
+    // Builderで送信エレメント（印刷データ）を組み立てる
+    // createInitializationElement / createTextElement 等はマニュアルに記載があります。[6](https://www.star-micronics.co.jp/products/s_print/sdk/webprnt/manual/ja/_StarWebPRNTExtManagerResponseElement.htm)[4](https://starmicronics.com/webprnt-browser-web-based-pos-sdk-browser-printing/)
+    const b = new StarWebPrintBuilder();
+    let req = "";
+    req += b.createInitializationElement();
+    req += b.createTextElement({ data: text + "\n" });
+    req += b.createCutPaperElement({ feed: true });
+    return req;
   }
 
-  function printText() {
-    const url  = document.getElementById("printerUrl").value.trim();
-    const text = (document.getElementById("text").value || "").trim();
-
-    if (!url) { logLine("ERROR: プリンタURLが空です"); return; }
-    if (!text) { logLine("ERROR: 印刷文字が空です"); return; }
-
-    // 1) Builderで印刷要求（送信エレメント）を作る
-    //    ※createTextElement等、詳細はSDKのサンプルと同系統のAPIを使用します。[1](https://www.star-micronics.co.jp/products/s_print/sdk/webprnt/manual/ja/_sampleProgram.htm)[2](https://star-m.jp/products/s_print/sdk/webprnt/manual/en/_sampleProgram.htm)
-    const builder = new StarWebPrintBuilder();
-    builder.createInitializationElement();
-    builder.createTextElement({ data: text + "\n" });
-    builder.createCutPaperElement({ feed: true });
-
-    const request = builder.toString();
-
-    // 2) Traderでプリンタに送信
+  function sendWithEndpoint(url, request, onDone) {
+    // Traderで送信。sendMessageやonReceive/onErrorはマニュアルで説明されています。[5](https://star-m.jp/products/s_print/sdk/webprnt/manual/en/_StarWebPrintTrader-js.htm)
     const trader = new StarWebPrintTrader({ url });
 
+    // 端末環境によりタイムアウトは調整してください
+    trader.timeout = 8000;
+
     trader.onReceive = function (response) {
-      logLine("RECEIVE: " + JSON.stringify(response));
-      // responseの中にstatusなどが入ります（SDK/機種で異なる）
+      logLine("受信: " + url, "ok");
+      logLine(JSON.stringify(response));
+      onDone(true, response);
     };
 
     trader.onError = function (err) {
-      logLine("ERROR: " + JSON.stringify(err));
-      logLine("よくある原因: https→http(mixed content), 証明書未信頼, URLパス誤り(/StarWebPRNT/SendMessage), 到達不能");
+      logLine("送信失敗: " + url, "ng");
+      logLine(JSON.stringify(err));
+      onDone(false, err);
     };
 
-    logLine("SEND: " + url);
+    logLine("送信: " + url);
     trader.sendMessage({ request });
   }
+
+  function sendAuto(request) {
+    let i = 0;
+
+    function tryNext() {
+      if (i >= ENDPOINT_CANDIDATES.length) {
+        logLine("全候補で失敗しました。Star webPRNT Browserの設定（MODEL/SELECTED PRINTER）とペアリング状態を確認してください。", "ng");
+        return;
+      }
+      const url = ENDPOINT_CANDIDATES[i++];
+      sendWithEndpoint(url, request, (ok) => {
+        if (!ok) {
+          // 次の候補へ
+          tryNext();
+        }
+      });
+    }
+
+    tryNext();
+  }
+
+  function printText() {
+    const text = (document.getElementById("txt").value || "").trim();
+    if (!text) { logLine("文字を入力してください", "ng"); return; }
+    const req = buildRequest(text);
+    sendAuto(req);
+  }
+
+  function printSample() {
+    const now = new Date();
+    const sample =
+      "SM-L200 webPRNT テスト\n" +
+      "---------------------\n" +
+      "日時: " + now.toLocaleString() + "\n" +
+      "ABC-123\n";
+    const req = buildRequest(sample);
+    sendAuto(req);
+  }
 </script>
+
 </body>
 </html>
+
