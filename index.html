@@ -1,11 +1,94 @@
 <!doctype html>
-<html>
+<html lang="ja">
 <head>
   <meta charset="utf-8" />
-  <title>SWA HTTPS確認</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>webPRNT 最小テスト（文字印刷）</title>
+
+  <!-- Star提供ライブラリ（改変しない） -->
+  <script src="./StarWebPrintBuilder.js"></script>
+  <script src="./StarWebPrintTrader.js"></script>
+
+  <style>
+    body { font-family: system-ui, sans-serif; padding: 16px; }
+    .row { margin: 10px 0; }
+    input { width: 100%; font-size: 18px; padding: 10px; }
+    button { font-size: 18px; padding: 10px 14px; margin-right: 8px; }
+    textarea { width:100%; height: 180px; font-family: ui-monospace, Menlo, Consolas, monospace; }
+    small { color:#666; }
+  </style>
 </head>
+
 <body>
-  <h1>SWA テスト</h1>
-  <button onclick="location.href='http://example.com'y>
+  <h2>Star webPRNT 文字印刷テスト</h2>
+
+  <div class="row">
+    <label>プリンタ SendMessage URL</label><br/>
+    <input id="printerUrl" value="https://192.168.1.100/StarWebPRNT/SendMessage" />
+    <small>※SWAがHTTPSなので、プリンタ側もHTTPS推奨（クロススキーム制限回避）。</small>
+  </div>
+
+  <div class="row">
+    <label>印刷する文字</label><br/>
+    <input id="text" placeholder="例：テスト印刷 123" />
+  </div>
+
+  <div class="row">
+    <button onclick="printText()">印刷</button>
+    <button onclick="selfTest()">通信テスト（Sendせず）</button>
+  </div>
+
+  <div class="row">
+    <label>ログ</label><br/>
+    <textarea id="log" readonly></textarea>
+  </div>
+
+<script>
+  function logLine(s) {
+    const ta = document.getElementById("log");
+    ta.value += s + "\n";
+    ta.scrollTop = ta.scrollHeight;
+  }
+
+  // 通信テスト（URLがそれっぽいかだけチェック）
+  function selfTest() {
+    const url = document.getElementById("printerUrl").value.trim();
+    logLine("URL=" + url);
+    logLine("注意: SWA(https) → Printer(http) はブロックされやすい（mixed content）。");
+  }
+
+  function printText() {
+    const url  = document.getElementById("printerUrl").value.trim();
+    const text = (document.getElementById("text").value || "").trim();
+
+    if (!url) { logLine("ERROR: プリンタURLが空です"); return; }
+    if (!text) { logLine("ERROR: 印刷文字が空です"); return; }
+
+    // 1) Builderで印刷要求（送信エレメント）を作る
+    //    ※createTextElement等、詳細はSDKのサンプルと同系統のAPIを使用します。[1](https://www.star-micronics.co.jp/products/s_print/sdk/webprnt/manual/ja/_sampleProgram.htm)[2](https://star-m.jp/products/s_print/sdk/webprnt/manual/en/_sampleProgram.htm)
+    const builder = new StarWebPrintBuilder();
+    builder.createInitializationElement();
+    builder.createTextElement({ data: text + "\n" });
+    builder.createCutPaperElement({ feed: true });
+
+    const request = builder.toString();
+
+    // 2) Traderでプリンタに送信
+    const trader = new StarWebPrintTrader({ url });
+
+    trader.onReceive = function (response) {
+      logLine("RECEIVE: " + JSON.stringify(response));
+      // responseの中にstatusなどが入ります（SDK/機種で異なる）
+    };
+
+    trader.onError = function (err) {
+      logLine("ERROR: " + JSON.stringify(err));
+      logLine("よくある原因: https→http(mixed content), 証明書未信頼, URLパス誤り(/StarWebPRNT/SendMessage), 到達不能");
+    };
+
+    logLine("SEND: " + url);
+    trader.sendMessage({ request });
+  }
+</script>
+</body>
 </html>
-``
